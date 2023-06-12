@@ -1,0 +1,80 @@
+version: "3.6"
+services:
+  postgres:
+    image: postgres:14.2
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
+    networks:
+      - djangonetwork
+    ports:
+      - "${DB_PORT}:5432"
+    volumes:
+      - "./postgres:/var/lib/postgresql/data"
+      - "./postgresql.conf:/etc/postgresql/postgresql.conf"
+    environment:
+      - "POSTGRES_HOST_AUTH_METHOD=trust"
+    env_file:
+      - .env
+
+  app:
+    restart: always
+    depends_on:
+      - postgres
+    links:
+      - postgres:postgres
+    networks:
+      - djangonetwork
+    build:
+      context: app
+      dockerfile: ./Dockerfile
+    env_file:
+      - .env
+    ports:
+      - "${APP_PORT}:8080"
+    volumes:
+      - ./app:/app
+
+
+  machine_image:
+    restart: always
+    depends_on:
+      - postgres
+    links:
+      - postgres:postgres
+    networks:
+      - djangonetwork
+    build:
+      context: ./machine_image
+      dockerfile: ./Dockerfile
+    env_file:
+      - .env
+    ports:
+      - "${MACHINE_IMAGE_PORT}:8083"
+    volumes:
+      - ./machine_image:/app
+
+
+  worker:
+    build: ./app
+    command: celery -A worker.celery worker --loglevel=info
+    networks:
+      - djangonetwork
+    volumes:
+      - ./app:/app
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - app
+      - redis
+
+  redis:
+    restart: always
+    image: redis:6.2-alpine
+    networks:
+      - djangonetwork
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+
+networks:
+  djangonetwork:
+    driver: bridge
